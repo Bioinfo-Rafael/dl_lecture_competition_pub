@@ -1,5 +1,5 @@
 
-!pip install numpy
+pip install numpy
 import os, sys
 import numpy as np
 import torch
