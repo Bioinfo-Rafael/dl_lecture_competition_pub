@@ -39,9 +39,65 @@ def run(args: DictConfig):
     # ------------------
     #       Model
     # ------------------
-    model = BasicConvClassifier(
-        train_set.num_classes, train_set.seq_len, train_set.num_channels
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+    class EEGNet(nn.Module):
+        def __init__(self, num_classes, Chans=64, Samples=128, dropoutRate=0.5, kernLength=64, F1=8, D=2, F2=16, norm_rate=0.25):
+            super(EEGNet, self).__init__()
+            self.num_classes = num_classes
+
+            # First Conv2D Layer
+            self.conv1 = nn.Conv2d(1, F1, (1, kernLength), padding=0, bias=False)
+            self.batchnorm1 = nn.BatchNorm2d(F1, False)
+            
+            # Depthwise Conv2D Layer
+            self.depthwiseConv = nn.Conv2d(F1, F1 * D, (Chans, 1), groups=F1, bias=False)
+            self.batchnorm2 = nn.BatchNorm2d(F1 * D, False)
+            
+            # Average Pooling Layer
+            self.avgpool1 = nn.AvgPool2d((1, 4))
+            self.dropout1 = nn.Dropout(dropoutRate)
+            
+            # Separable Conv2D Layer
+            self.separableConv = nn.Conv2d(F1 * D, F2, (1, 16), padding=(0, 8), bias=False)
+            self.batchnorm3 = nn.BatchNorm2d(F2, False)
+            
+            # Average Pooling Layer
+            self.avgpool2 = nn.AvgPool2d((1, 8))
+            self.dropout2 = nn.Dropout(dropoutRate)
+
+            # Fully Connected Layer
+            self.fc1 = nn.Linear(F2 * ((Samples // 32) - 1), num_classes)
+
+        def forward(self, x):
+            x = x.unsqueeze(1)  # Add a channel dimension
+            x = self.conv1(x)
+            x = self.batchnorm1(x)
+            x = F.elu(x)
+            x = self.depthwiseConv(x)
+            x = self.batchnorm2(x)
+            x = F.elu(x)
+            x = self.avgpool1(x)
+            x = self.dropout1(x)
+            x = self.separableConv(x)
+            x = self.batchnorm3(x)
+            x = F.elu(x)
+            x = self.avgpool2(x)
+            x = self.dropout2(x)
+            x = x.flatten(start_dim=1)
+            x = self.fc1(x)
+            return x
+
+    # Usage example
+    # Assuming train_set.num_classes = 2, train_set.seq_len = 128, train_set.num_channels = 64
+    model = EEGNet(
+        num_classes=train_set.num_classes,
+        Chans=train_set.num_channels,
+        Samples=train_set.seq_len
     ).to(args.device)
+
 
     # ------------------
     #     Optimizer
